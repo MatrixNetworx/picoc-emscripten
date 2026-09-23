@@ -47,6 +47,7 @@ static struct ReservedWord ReservedWords[] =
     { "break", TokenBreak },
     { "case", TokenCase },
     { "char", TokenCharType },
+    { "const", TokenConstType },
     { "continue", TokenContinue },
     { "default", TokenDefault },
     { "delete", TokenDelete },
@@ -74,6 +75,7 @@ static struct ReservedWord ReservedWords[] =
     { "union", TokenUnionType },
     { "unsigned", TokenUnsignedType },
     { "void", TokenVoidType },
+    { "volatile", TokenVolatileType },
     { "while", TokenWhile }
 };
 

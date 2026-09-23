@@ -355,11 +355,11 @@ int TypeParseFront(struct ParseState *Parser, struct ValueType **Typ, int *IsSta
     /* ignore leading type qualifiers */
     ParserCopy(&Before, Parser);
     Token = LexGetToken(Parser, &LexerValue, TRUE);
-    while (Token == TokenStaticType || Token == TokenAutoType || Token == TokenRegisterType || Token == TokenExternType)
+    while (Token == TokenStaticType || Token == TokenAutoType || Token == TokenRegisterType || Token == TokenExternType || Token == TokenConstType || Token == TokenVolatileType)
     {
         if (Token == TokenStaticType)
             StaticQualifier = TRUE;
-            
+
         Token = LexGetToken(Parser, &LexerValue, TRUE);
     }
     
