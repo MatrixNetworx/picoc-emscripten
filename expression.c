@@ -911,7 +911,7 @@ void ExpressionStackCollapse(struct ParseState *Parser, struct ExpressionStack *
                     *StackTop = TopOperatorNode->Next;
                     
                     /* do the prefix operation */
-                    if (Parser->Mode == RunModeRun /* && FoundPrecedence < *IgnorePrecedence */)
+                    if (Parser->Mode == RunModeRun && FoundPrecedence < *IgnorePrecedence)
                     {
                         /* run the operator */
                         ExpressionPrefixOperator(Parser, StackTop, TopOperatorNode->Op, TopValue);
@@ -934,7 +934,7 @@ void ExpressionStackCollapse(struct ParseState *Parser, struct ExpressionStack *
                     *StackTop = TopStackNode->Next->Next;
 
                     /* do the postfix operation */
-                    if (Parser->Mode == RunModeRun /* && FoundPrecedence < *IgnorePrecedence */)
+                    if (Parser->Mode == RunModeRun && FoundPrecedence < *IgnorePrecedence)
                     {
                         /* run the operator */
                         ExpressionPostfixOperator(Parser, StackTop, TopOperatorNode->Op, TopValue);
@@ -961,7 +961,7 @@ void ExpressionStackCollapse(struct ParseState *Parser, struct ExpressionStack *
                         *StackTop = TopOperatorNode->Next->Next;
                         
                         /* do the infix operation */
-                        if (Parser->Mode == RunModeRun /* && FoundPrecedence <= *IgnorePrecedence */)
+                        if (Parser->Mode == RunModeRun && FoundPrecedence <= *IgnorePrecedence)
                         {
                             /* run the operator */
                             ExpressionInfixOperator(Parser, StackTop, TopOperatorNode->Op, BottomValue, TopValue);
@@ -1190,7 +1190,12 @@ int ExpressionParse(struct ParseState *Parser, struct Value **Result)
                     }
                     else
                     { 
-                        /* if it's a && or || operator we may not need to evaluate the right hand side of the expression */
+                        /* short-circuit: for && / || and the two ?: arms we can skip the
+                         * operand that is provably not needed. Reuses picoc's existing
+                         * IgnorePrecedence skip (already used for the function-call operand):
+                         * once set, higher-precedence operators in the skipped region push 0
+                         * instead of running, so a side-effecting or crashing untaken operand
+                         * (division, recursion) never executes. See c-017. */
                         if ( (Token == TokenLogicalOr || Token == TokenLogicalAnd) && IS_NUMERIC_COERCIBLE(StackTop->Val))
                         {
                             long LHSInt = ExpressionCoerceInteger(StackTop->Val);
@@ -1198,7 +1203,24 @@ int ExpressionParse(struct ParseState *Parser, struct Value **Result)
                                  (IgnorePrecedence > Precedence) )
                                 IgnorePrecedence = Precedence;
                         }
-                        
+                        else if (Token == TokenQuestionMark && StackTop != NULL && IS_NUMERIC_COERCIBLE(StackTop->Val))
+                        {
+                            /* the condition is on top of the stack here; if it's FALSE, skip the
+                             * "then" arm (operators between ? and :). The : collapse runs the ?
+                             * operator, which resets ignoring so the "else" arm still evaluates. */
+                            if (!ExpressionCoerceInteger(StackTop->Val) && (IgnorePrecedence > Precedence))
+                                IgnorePrecedence = Precedence;
+                        }
+                        else if (Token == TokenColon && StackTop != NULL && StackTop->Val != NULL &&
+                                 StackTop->Val->Typ->Base != TypeVoid)
+                        {
+                            /* ?: is left-to-right, so the ? operator has already run: a non-void
+                             * top means the condition was TRUE and the "then" value was selected,
+                             * so skip the "else" arm that follows the colon. */
+                            if (IgnorePrecedence > Precedence)
+                                IgnorePrecedence = Precedence;
+                        }
+
                         /* push the operator on the stack */
                         ExpressionStackPushOperator(Parser, &StackTop, OrderInfix, Token, Precedence);
                         PrefixState = TRUE;
@@ -1234,7 +1256,7 @@ int ExpressionParse(struct ParseState *Parser, struct Value **Result)
             }
             else
             {
-                if (Parser->Mode == RunModeRun /* && Precedence < IgnorePrecedence */)
+                if (Parser->Mode == RunModeRun && Precedence < IgnorePrecedence)
                 {
                     struct Value *VariableValue = NULL;
                     
@@ -1265,8 +1287,12 @@ int ExpressionParse(struct ParseState *Parser, struct Value **Result)
                     
             }
 
-             /* if we've successfully ignored the RHS turn ignoring off */
-            if (Precedence <= IgnorePrecedence)
+             /* if we've successfully ignored the RHS turn ignoring off. Strict '<' (not
+              * '<='): a skipped arm whose leading operand inherits the short-circuit
+              * operator's own precedence (e.g. the identifier that starts a ?: arm at the
+              * colon's precedence) must NOT turn ignoring off here - the collapse reset
+              * (above) turns it off when the operator itself finally runs. See c-017. */
+            if (Precedence < IgnorePrecedence)
                 IgnorePrecedence = DEEP_PRECEDENCE;
 
             PrefixState = FALSE;
